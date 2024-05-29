@@ -1,102 +1,100 @@
-from sqlalchemy import Column, Integer, String, create_engine
+from sqlalchemy import Column, Integer, String, Boolean, create_engine
+from sqlalchemy import ForeignKey
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy import select
 from statistics import mean, pstdev
+from sqlalchemy.sql.expression import func
+from sqlalchemy import inspect
+from faker import Faker
+from datetime import date
+from typing import Self
+from tqdm import tqdm
 import csv
 
 Base = declarative_base()
 
 
 # Configuration de la base de données
-engine = create_engine('sqlite:///books.db')
-Base.metadata.create_all(engine)
-
-Session = sessionmaker(bind=engine)
-session = Session()
 
 class Book(Base):
     __tablename__ = "Book"
-    isbn = Column(String, primary_key=True)
-    title = Column(String)
-    author = Column(String)
-    year_publication = Column(Integer)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    isbn = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    author = Column(String, nullable=False)
+    year_publication = Column(Integer, nullable=False)
+    available = Column(Boolean)
     
     def __repr__(self) -> str:
-        return f"{self.title}[{self.author}]({self.year_publication})"
+        return f"{self.title}[{self.author}]({self.year_publication}) -> {"available" if self.available else "not available"}"
     
-    @classmethod
-    def get_stats(cls, session, isbn):
-        request = select(Rating.book_rating).where(Rating.isnb == isbn)
+    
+    def get_stats(self, session):
+        request = select(Rating.book_rating).where(Rating.isnb == self.isbn)
         data = session.execute(request).all()
         values = [int(i._mapping['book_rating']) for i in data]
-        print(f"l'le livre n°{isbn} a fais {len(values)} avis, ayant pour moyenne {mean(values)} et pour ecart_type {pstdev(values)}")
+        print(f"l'le livre n°{self.isbn} a fais {len(values)} avis, ayant pour moyenne {mean(values)} et pour ecart_type {pstdev(values)}")
+
+    @classmethod
+    def get_random_books(cls,  number: int) -> (Self):
+        request = select(Book).order_by(func.random()).limit(number)
+        data = session.execute(request).all()
+        return (i._mapping['Book'] for i in data)
+    
+    @classmethod
+    def get_books_by_name(cls, session, substring: str) -> (Self):
+        request = select(Book).filter(Book.title.contains(substring))
+        data = session.execute(request).all()
+        return(i._mapping['Book'] for i in data)
 
 class User(Base):
     __tablename__ = "User"
     userId = Column(String, primary_key=True)
-    location = Column(String)
-    age = Column(String)
+    location = Column(String, nullable=False)
+    age = Column(String, nullable=True)
+    loan_available = Column(Integer, nullable=False)
     
-    @classmethod
-    def get_stats(cls, session, userID):
-        request = select(Rating.book_rating).where(Rating.userId == userID)
+    def __repr__(self) -> str:
+        return f'id: {self.userId} location: {self.location} age: {self.age}'
+    
+    def get_stats(self, session):
+        request = select(Rating.book_rating).where(Rating.userId == self.userId)
         data = session.execute(request).all()
         values = [int(i._mapping['book_rating']) for i in data]
-        print(f"l'utilisateur {userID} a fais {len(values)} avis, ayant pour moyenne {mean(values)} et pour ecart_type {pstdev(values)} ")
-        
+        if len(values) == 0:
+            print(f"l'utilisateur {self.userId} n'as pas mis d'avis pour le moment")
+        else:
+            print(f"l'utilisateur {self.userId} a fais {len(values)} avis, ayant pour moyenne {mean(values)} et pour ecart_type {pstdev(values)} ")
+
+    @classmethod
+    def get_random_users(cls, number: int) -> (Self):
+        request = select(User).order_by(func.random()).limit(number)
+        data = session.execute(request).all()
+        return (i._mapping['User'] for i in data)
+
 
 class Rating(Base):
     __tablename__ = "Rating"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    userId = Column(String)
-    isnb = Column(String)
-    book_rating = Column(String)
-
-csv_book_path = 'files/books.csv'
-csv_users_path = 'files/users.csv'
-csv_rating_path = 'files/ratings.csv'
-
-def import_ratings_from_csv(csv_file_path):
-    with open(csv_file_path, newline='', encoding='latin-1') as csvfile:
-        csvreader = csv.DictReader(csvfile,quotechar='"', delimiter=';') # to Update???
-        for row in csvreader:
-            rating = Rating(
-                userId=row['User-ID'], isnb=row['ISBN'], 
-                book_rating=row['Book-Rating']
-            )
-            session.add(rating)
-        session.commit()
-
-def import_users_from_csv(csv_file_path):
-    with open(csv_file_path, newline='', encoding='latin-1') as csvfile:
-        csvreader = csv.DictReader(csvfile,quotechar='"', delimiter=';') # to Update???
-        for row in csvreader:
-            user = User(
-                userId=row['User-ID'], location=row['Location'], 
-                age=row['Age']
-            )
-            session.add(user)
-        session.commit()
-
-def import_books_from_csv(csv_file_path):
-    with open(csv_file_path, newline='', encoding='latin-1') as csvfile:
-        csvreader = csv.DictReader(csvfile,quotechar='"', delimiter=';') # to Update???
-        for row in csvreader:
-            book = Book(
-                isbn=row['ISBN'], title=row['Book-Title'], 
-                author=row['Book-Author'], year_publication=row['Year-Of-Publication']
-            )
-            session.add(book)
-        session.commit()
-
-# Chemin vers le fichier CSV
-#if not inspect(engine).has_table('Book'):
- #   import_books_from_csv(csv_book_path)
-#import_ratings_from_csv(csv_rating_path)
-#import_users_from_csv(csv_users_path)
-#data = session.query(Book).filter(Book.title.contains('The Hobbit')).all()
-#for toto in data:
-#    print(toto)
-User.get_stats(session=session, userID="276747")
-Book.get_stats(session=session, isbn="0345339703")
-session.close()
+    userId = Column(String, nullable=False)
+    isnb = Column(String, nullable=False)
+    book_rating = Column(String, nullable=False)
+    
+class Author(Base):
+    __tablename__ = "Author"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, ForeignKey("Book.author"), nullable=False)
+    birth_year = Column(Integer, nullable=False)
+    death_year = Column(Integer, nullable=False)
+    nationality = Column(String, nullable=False)
+    
+    def get_books(self, session):
+        print(f'----- {self.name} -----')
+        request = select(Book).where(Book.author == self.name)
+        values = session.execute(request).all()
+        for book in values:
+            print(book._mapping['Book'])
+    
+    @classmethod
+    def get_random_authors(cls, number: int) -> (Self):
+        request = select(Author).order_by(func.random()).limit
